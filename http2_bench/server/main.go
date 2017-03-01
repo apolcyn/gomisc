@@ -2,11 +2,12 @@ package main
 
 import (
 	"bytes"
-	"crypto/tls"
 	"io"
 	"log"
 	"net"
 	"net/http"
+
+	"golang.org/x/net/http2"
 )
 
 func pingPong(w http.ResponseWriter, req *http.Request) {
@@ -15,22 +16,18 @@ func pingPong(w http.ResponseWriter, req *http.Request) {
 		expect[i] = byte(i)
 	}
 	b := make([]byte, 10)
-	for {
-		_, err := io.ReadFull(req.Body, b)
-		if bytes.Compare(expect, b) != 0 {
-			log.Println("want %v; got %v", expect, b)
-		}
-		if err == io.EOF {
-			req.Body.Close()
-			break
-		} else if err != nil {
-			panic("read error")
-		}
-		if _, err = w.Write(b); err != nil {
-			panic("something happened")
-		}
-		w.(http.Flusher).Flush()
+	_, err := io.ReadFull(req.Body, b)
+	if err != nil {
+		panic("read err")
 	}
+	req.Body.Close()
+	if bytes.Compare(expect, b) != 0 {
+		log.Println("want %v; got %v", expect, b)
+	}
+	if _, err = w.Write(b); err != nil {
+		panic("something happened")
+	}
+	w.(http.Flusher).Flush()
 }
 
 func main() {
@@ -38,14 +35,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	var config tls.Config
-	var certFile = "server.crt"
-	var keyFile = "server.key"
-	config.NextProtos = []string{"h2"}
-	config.Certificates = make([]tls.Certificate, 1)
-	config.Certificates[0], err = tls.LoadX509KeyPair(certFile, keyFile)
 
-	srv := &http.Server{Addr: "localhost:8080", TLSConfig: &config, Handler: http.HandlerFunc(pingPong)}
-	tlsListener := tls.NewListener(l, &config)
-	log.Fatal(srv.Serve(tlsListener))
+	srv := &http.Server{Addr: "localhost:8080", Handler: http.HandlerFunc(pingPong)}
+	http2.ConfigureServer(srv, nil)
+	log.Fatal(srv.Serve(l))
 }

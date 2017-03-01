@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/tls"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -13,17 +12,14 @@ import (
 
 func BenchmarkClient(b *testing.B) {
 	t := (http.DefaultTransport.(*http.Transport))
-	t.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true,
-	}
 	if err := http2.ConfigureTransport(t); err != nil {
 		log.Fatal(err)
 	}
 
 	b.Run("benchmark", func(b *testing.B) {
-	        for i := 0; i < b.N; i++ {
+		for i := 0; i < b.N; i++ {
 			request(b)
-	        }
+		}
 	})
 }
 
@@ -37,7 +33,7 @@ func request(b *testing.B) {
 
 	var httpResp *http.Response
 	var err error
-	httpResp, err = http.Post("https://" + addr, "application/grpc", bytes.NewReader(req))
+	httpResp, err = http.Post("http://"+addr, "application/grpc", bytes.NewReader(req))
 	if err != nil {
 		b.Errorf("post err: %v", err)
 	}
