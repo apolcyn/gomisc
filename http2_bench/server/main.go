@@ -16,18 +16,20 @@ func pingPong(w http.ResponseWriter, req *http.Request) {
 		expect[i] = byte(i)
 	}
 	b := make([]byte, 10)
-	_, err := io.ReadFull(req.Body, b)
-	if err != nil {
-		panic("read err")
+	for {
+	        _, err := io.ReadFull(req.Body, b)
+	        if err != nil {
+			break
+	        }
+	        if bytes.Compare(expect, b) != 0 {
+			log.Println("want %v; got %v", expect, b)
+	        }
+	        if _, err = w.Write(b); err != nil {
+			panic("something happened")
+	        }
+		w.(http.Flusher).Flush()
 	}
 	req.Body.Close()
-	if bytes.Compare(expect, b) != 0 {
-		log.Println("want %v; got %v", expect, b)
-	}
-	if _, err = w.Write(b); err != nil {
-		panic("something happened")
-	}
-	w.(http.Flusher).Flush()
 }
 
 func main() {
