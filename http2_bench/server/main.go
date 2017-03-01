@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"io"
 	"log"
 	"net"
@@ -10,26 +11,38 @@ import (
 	"golang.org/x/net/http2"
 )
 
-func pingPong(w http.ResponseWriter, req *http.Request) {
+type flushWriter struct {
+	hw http.ResponseWriter
+}
+
+func (w *flushWriter) Write(p []byte) (int, error) {
+	if len(p) != 10 {
+		log.Fatalf("length not 10")
+	} else {
+		log.Println("sending expected")
+	}
+
 	expect := make([]byte, 10)
 	for i, _ := range expect {
 		expect[i] = byte(i)
 	}
-	b := make([]byte, 10)
-	for {
-	        _, err := io.ReadFull(req.Body, b)
-	        if err != nil {
-			break
-	        }
-	        if bytes.Compare(expect, b) != 0 {
-			log.Println("want %v; got %v", expect, b)
-	        }
-	        if _, err = w.Write(b); err != nil {
-			panic("something happened")
-	        }
-		w.(http.Flusher).Flush()
+
+	if bytes.Compare(expect, p) != 0 {
+		log.Println("want %v; got %v", expect, p)
 	}
+	var err error
+	var n int
+	if n, err = w.hw.Write(p); err != nil {
+		log.Fatal(err)
+	}
+	w.hw.(http.Flusher).Flush()
+	return n, nil
+}
+
+func pingPong(w http.ResponseWriter, req *http.Request) {
+	io.Copy(&flushWriter{w}, req.Body)
 	req.Body.Close()
+	log.Println("done\n")
 }
 
 func main() {
@@ -37,8 +50,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	var config tls.Config
+	certFile := "server.crt"
+	keyFile := "server.key"
+	config.NextProtos = []string{"h2"}
+	config.Certificates = make([]tls.Certificate, 1)
+	config.Certificates[0], err = tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	srv := &http.Server{Addr: "localhost:8080", Handler: http.HandlerFunc(pingPong)}
+	srv := &http.Server{Addr: "localhost:8080", TLSConfig: &config, Handler: http.HandlerFunc(pingPong)}
 	http2.ConfigureServer(srv, nil)
-	log.Fatal(srv.Serve(l))
+	tlsListener := tls.NewListener(l, &config)
+	log.Fatal(srv.Serve(tlsListener))
 }
