@@ -3,10 +3,10 @@ package main
 import (
 	"crypto/tls"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"golang.org/x/net/http2"
@@ -24,93 +24,20 @@ func main() {
 	log.Println("about to start up call")
 	done := make(chan int, 1)
 	go func() {
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Second * 10)
 		done <- 0
 	}()
 	http2PingPong(done)
 }
 
-type recvBuffer struct {
-	c       chan []byte
-	mu      sync.Mutex
-	backlog [][]byte
-}
-
-func newRecvBuffer() *recvBuffer {
-	return &recvBuffer{
-		c:       make(chan []byte, 1),
-		backlog: make([][]byte, 0),
-	}
-}
-
-func (r *recvBuffer) get() chan []byte {
-	return r.c
-}
-
-func (r *recvBuffer) load() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if len(r.backlog) > 0 {
-		select {
-		case r.c <- r.backlog[0]:
-			r.backlog = r.backlog[1:]
-		default:
-			return
-		}
-	}
-}
-
-func (r *recvBuffer) put(b []byte) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if len(r.backlog) == 0 {
-		select {
-		case r.c <- b:
-			return
-		default:
-		}
-	}
-	r.backlog = append(r.backlog, b)
-}
-
-func (r *recvBuffer) Write(b []byte) (int, error) {
-	if len(b) != 10 {
-		panic("wrong")
-	}
-	r.put(b)
-	return 10, nil
-}
-
-func (r *recvBuffer) Read(dest []byte) (int, error) {
-	b := <-r.get()
-	r.load()
-
-	if len(b) == 0 {
-		log.Println("recvBuffer EOF reached")
-		return 0, io.EOF
-	}
-	if len(b) != 10 {
-		panic("something wrong")
-	}
-
-	n := copy(dest, b)
-	if len(dest) < 10 {
-		panic("wrong")
-	}
-	if n != 10 {
-		panic("bad")
-	}
-	return len(b), nil
-}
-
 func http2PingPong(done chan int) {
-	reqBuffer := newRecvBuffer()
 	addr := "localhost:8080"
 
 	var httpResp *http.Response
 	var httpReq *http.Request
 	var err error
-	httpReq, err = http.NewRequest("POST", "https://"+addr, reqBuffer)
+	pr, pw := io.Pipe()
+	httpReq, err = http.NewRequest("POST", "https://"+addr, ioutil.NopCloser(pr))
 	httpReq.ContentLength = -1
 	httpReq.Proto = "HTTP/2"
 	if err != nil {
@@ -118,7 +45,9 @@ func http2PingPong(done chan int) {
 	}
 	httpResp, err = http.DefaultClient.Do(httpReq)
 	write := func(req []byte) {
-		reqBuffer.put(req)
+		if _, err := pw.Write(req); err != nil {
+			log.Fatal(err)
+		}
 	}
 	read := func() bool {
 		resp := make([]byte, 10)
@@ -148,7 +77,7 @@ func http2PingPong(done chan int) {
 			count++
 		}
 	}
-	write(make([]byte, 0))
+	pw.Close()
 	if !read() {
 		panic("")
 	}
