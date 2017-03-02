@@ -122,7 +122,7 @@ func main() {
 		handler = http.HandlerFunc(grpcPingPong)
 	}
 
-	srv := &http.Server{Addr: "localhost:8080", TLSConfig: &config, Handler: handler}
+	srv := &http.Server{Addr: ":8080", TLSConfig: &config, Handler: handler}
 	http2.ConfigureServer(srv, nil)
 	tlsListener := tls.NewListener(l, &config)
 	log.Fatal(srv.Serve(tlsListener))
