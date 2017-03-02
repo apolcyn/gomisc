@@ -40,6 +40,7 @@ func (w *flushWriter) Write(p []byte) (int, error) {
 }
 
 func pingPong(w http.ResponseWriter, req *http.Request) {
+	w.(http.Flusher).Flush()
 	io.Copy(&flushWriter{w}, req.Body)
 	req.Body.Close()
 	log.Println("done\n")

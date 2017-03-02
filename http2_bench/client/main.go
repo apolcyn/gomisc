@@ -1,14 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"crypto/tls"
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"sync"
-	"time"
 
 	"golang.org/x/net/http2"
 )
@@ -22,32 +19,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	reqBuffer := newRecvBuffer()
-	respBuffer := newRecvBuffer()
-	doneChan := make(chan bool)
-	go func() {
-		time.Sleep(time.Second * 2)
-		doneChan <- true
-	}()
-	totalChan := make(chan int64, 1)
-	go func() {
-		count := 0
-		defer reqBuffer.put(make([]byte, 0))
-		defer func() { totalChan <- int64(count) }()
-		for {
-			select {
-			case <-doneChan:
-				return
-			default:
-			}
-			requestResponse(reqBuffer, respBuffer)
-			count += 1
-		}
-	}()
 	log.Println("about to start up call")
-	initCall(reqBuffer, respBuffer)
-	total := <-totalChan
-	log.Println("total: " + strconv.FormatInt(total, 10))
+	initCall()
 }
 
 type recvBuffer struct {
@@ -123,7 +96,8 @@ func (r *recvBuffer) Read(dest []byte) (int, error) {
 	return len(b), nil
 }
 
-func initCall(reqBuffer *recvBuffer, respBuffer *recvBuffer) {
+func initCall() {
+	reqBuffer := newRecvBuffer()
 	addr := "localhost:8080"
 
 	var httpResp *http.Response
@@ -136,32 +110,31 @@ func initCall(reqBuffer *recvBuffer, respBuffer *recvBuffer) {
 		log.Fatal(err)
 	}
 	httpResp, err = http.DefaultClient.Do(httpReq)
-	defer httpResp.Body.Close()
-	for {
+	write := func(req []byte) {
+		reqBuffer.put(req)
+	}
+	read := func() bool {
 		resp := make([]byte, 10)
 		_, err = io.ReadFull(httpResp.Body, resp)
 		if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
 			panic("")
 		}
 		if err != nil {
-			break
+			return true
 		}
-		_, err = io.Copy(respBuffer, bytes.NewReader(resp))
+		return false
 	}
-}
-
-func requestResponse(reqBuffer *recvBuffer, respBuffer *recvBuffer) {
 	req := make([]byte, 10)
 	for i, _ := range req {
 		req[i] = byte(i)
 	}
-	reqBuffer.put(req)
-	resp := make([]byte, 10)
-	_, err := io.ReadFull(respBuffer, resp)
-	if err != nil {
-		log.Fatalf("err happened. %v", err)
+	for i := 0; i < 10000; i++ {
+		write(req)
+		read()
 	}
-	if bytes.Compare(resp, req) != 0 {
-		log.Fatalf("bad response. want %v; got %v", req, resp)
+	write(make([]byte, 0))
+	if !read() {
+		panic("")
 	}
+	defer httpResp.Body.Close()
 }
