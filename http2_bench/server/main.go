@@ -102,7 +102,7 @@ func pingPong(w http.ResponseWriter, req *http.Request) {
 
 func main() {
 	flag.Parse()
-	l, err := net.Listen("tcp", "localhost:8080")
+	l, err := net.Listen("tcp", "0.0.0.0:8080")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func main() {
 		handler = http.HandlerFunc(grpcPingPong)
 	}
 
-	srv := &http.Server{Addr: ":8080", TLSConfig: &config, Handler: handler}
+	srv := &http.Server{Addr: "0.0.0.0:8080", TLSConfig: &config, Handler: handler}
 	http2.ConfigureServer(srv, nil)
 	tlsListener := tls.NewListener(l, &config)
 	log.Fatal(srv.Serve(tlsListener))
