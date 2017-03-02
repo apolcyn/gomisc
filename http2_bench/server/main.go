@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/tls"
 	"io"
 	"log"
@@ -16,22 +15,8 @@ type flushWriter struct {
 }
 
 func (w *flushWriter) Write(p []byte) (int, error) {
-	if len(p) != 10 {
-		log.Fatalf("length not 10")
-	} else {
-		log.Println("sending expected")
-	}
-
-	expect := make([]byte, 10)
-	for i, _ := range expect {
-		expect[i] = byte(i)
-	}
-
-	if bytes.Compare(expect, p) != 0 {
-		log.Println("want %v; got %v", expect, p)
-	}
-	var err error
 	var n int
+	var err error
 	if n, err = w.hw.Write(p); err != nil {
 		log.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"io"
 	"io/ioutil"
@@ -9,7 +10,10 @@ import (
 	"strconv"
 	"time"
 
+	"google.golang.org/grpc/benchmark/grpc_testing"
+
 	"golang.org/x/net/http2"
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -27,6 +31,7 @@ func main() {
 		time.Sleep(time.Second * 10)
 		done <- 0
 	}()
+	//grpcPingPong(done)
 	http2PingPong(done)
 }
 
@@ -83,4 +88,67 @@ func http2PingPong(done chan int) {
 	}
 	log.Println("count: " + strconv.FormatInt(int64(count), 10))
 	defer httpResp.Body.Close()
+}
+
+type byteBufCodec struct {
+}
+
+func (*byteBufCodec) Marshal(v interface{}) ([]byte, error) {
+	return *v.(*[]byte), nil
+}
+
+func (*byteBufCodec) Unmarshal(source []byte, v interface{}) error {
+	copy(*v.(*[]byte), source)
+	return nil
+}
+
+func (*byteBufCodec) String() string {
+	return "bytebufcodec"
+}
+
+func grpcPingPong(done chan int) {
+	conn, err := grpc.Dial("localhost:8081", grpc.WithInsecure(), grpc.WithCodec(&byteBufCodec{}))
+	if err != nil {
+		log.Fatal(err)
+	}
+	c := grpc_testing.NewBenchmarkServiceClient(conn)
+	client, err := c.StreamingCall(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
+	read := func(dest []byte) bool {
+		err := client.(grpc.ClientStream).RecvMsg(&dest)
+		if err != nil {
+			if err == io.EOF {
+				return true
+			}
+			log.Fatal(err)
+		}
+		return false
+	}
+	write := func(out []byte) {
+		err := client.(grpc.ClientStream).SendMsg(&out)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	complete := false
+	count := 0
+	expected := make([]byte, 10)
+	for i, _ := range expected {
+		expected[i] = byte(i)
+	}
+	for !complete {
+		select {
+		case <-done:
+			complete = true
+			break
+		default:
+			write(expected)
+			in := make([]byte, len(expected))
+			read(in)
+			count++
+		}
+	}
+	log.Println("count: " + strconv.FormatInt(int64(count), 10))
 }
