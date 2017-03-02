@@ -39,7 +39,7 @@ func ReadGrpcMsg(r io.Reader, header []byte, body []byte) error {
 		if err == io.ErrUnexpectedEOF || err == io.EOF {
 			return io.EOF
 		}
-		log.Fatal(err)
+		log.Fatalf("read header: %v", err)
 	}
 	pf := header[0]
 	if pf != 0 {
@@ -53,7 +53,7 @@ func ReadGrpcMsg(r io.Reader, header []byte, body []byte) error {
 		panic("invalid")
 	}
 	if _, err := io.ReadFull(r, body); err != nil {
-		log.Fatal(err)
+		log.Fatalf("read body: %v", err)
 	}
 	return nil
 }
@@ -68,7 +68,7 @@ func WriteGrpcMsg(w io.Writer, body []byte, out []byte) {
 		panic("bad copy")
 	}
 	if n, err := w.Write(out); err != nil || n != len(out) {
-		log.Fatal(err)
+		log.Fatalf("write msg: %v", err)
 	}
 	w.(http.Flusher).Flush()
 }
@@ -77,6 +77,7 @@ func grpcPingPong(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/grpc")
 	w.Header().Set("Content-Length", "-1")
 	w.(http.Flusher).Flush()
+	w.Header().Set("Trailer:grpc-status", "0")
 	header := make([]byte, 5)
 	body := make([]byte, expectedMsgLen)
 	out := make([]byte, expectedMsgLen+5)

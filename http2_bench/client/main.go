@@ -129,16 +129,6 @@ func grpcPingPong(done chan int) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	read := func(dest []byte) bool {
-		err := client.(grpc.ClientStream).RecvMsg(&dest)
-		if err != nil {
-			if err == io.EOF {
-				return true
-			}
-			log.Fatal(err)
-		}
-		return false
-	}
 	write := func(out []byte) {
 		err := client.(grpc.ClientStream).SendMsg(&out)
 		if err != nil {
@@ -151,19 +141,33 @@ func grpcPingPong(done chan int) {
 	for i, _ := range expected {
 		expected[i] = byte(i)
 	}
+	in := make([]byte, len(expected))
 	for !complete {
 		select {
 		case <-done:
 			complete = true
 			break
 		default:
-			log.Println("write")
 			write(expected)
-			in := make([]byte, len(expected))
-			log.Println("read")
-			read(in)
+			if err := client.(grpc.ClientStream).RecvMsg(&in); err != nil {
+				log.Fatal(err)
+			}
+			if len(in) != len(expected) {
+				log.Fatalf("bad length")
+			}
 			count++
 		}
+	}
+	if err := client.(grpc.ClientStream).CloseSend(); err != nil {
+		log.Fatal(err)
+	}
+	log.Println("about to wait for EOF")
+	if err := client.(grpc.ClientStream).RecvMsg(nil); err != io.EOF {
+		log.Fatalf("expected EOF; got %v", err)
+	}
+	log.Println("about to wait for EOF")
+	if err := conn.Close(); err != nil {
+		log.Fatal(err)
 	}
 	log.Println("grpc count: " + strconv.FormatInt(int64(count), 10))
 }
