@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"flag"
 	"io"
 	"io/ioutil"
 	"log"
@@ -10,13 +11,19 @@ import (
 	"strconv"
 	"time"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/benchmark/grpc_testing"
+	"google.golang.org/grpc/credentials"
 
 	"golang.org/x/net/http2"
-	"google.golang.org/grpc"
+)
+
+var (
+	useGrpc = flag.Bool("grpc", false, "grpc instead of http2 client")
 )
 
 func main() {
+	flag.Parse()
 	t := (http.DefaultTransport.(*http.Transport))
 	t.TLSClientConfig = &tls.Config{
 		InsecureSkipVerify: true,
@@ -25,14 +32,16 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Println("about to start up call")
 	done := make(chan int, 1)
 	go func() {
-		time.Sleep(time.Second * 10)
+		time.Sleep(time.Second * 1)
 		done <- 0
 	}()
-	//grpcPingPong(done)
-	http2PingPong(done)
+	if *useGrpc {
+		grpcPingPong(done)
+	} else {
+		http2PingPong(done)
+	}
 }
 
 func http2PingPong(done chan int) {
@@ -42,6 +51,7 @@ func http2PingPong(done chan int) {
 	var httpReq *http.Request
 	var err error
 	pr, pw := io.Pipe()
+	log.Println("new http2 post")
 	httpReq, err = http.NewRequest("POST", "https://"+addr, ioutil.NopCloser(pr))
 	httpReq.ContentLength = -1
 	httpReq.Proto = "HTTP/2"
@@ -86,7 +96,7 @@ func http2PingPong(done chan int) {
 	if !read() {
 		panic("")
 	}
-	log.Println("count: " + strconv.FormatInt(int64(count), 10))
+	log.Println("http2 count: " + strconv.FormatInt(int64(count), 10))
 	defer httpResp.Body.Close()
 }
 
@@ -107,10 +117,13 @@ func (*byteBufCodec) String() string {
 }
 
 func grpcPingPong(done chan int) {
-	conn, err := grpc.Dial("localhost:8081", grpc.WithInsecure(), grpc.WithCodec(&byteBufCodec{}))
+	creds := credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
+	log.Println("dial grpc")
+	conn, err := grpc.Dial("localhost:8080", grpc.WithTransportCredentials(creds), grpc.WithCodec(&byteBufCodec{}))
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Println("new client")
 	c := grpc_testing.NewBenchmarkServiceClient(conn)
 	client, err := c.StreamingCall(context.Background())
 	if err != nil {
@@ -134,7 +147,7 @@ func grpcPingPong(done chan int) {
 	}
 	complete := false
 	count := 0
-	expected := make([]byte, 10)
+	expected := make([]byte, 2)
 	for i, _ := range expected {
 		expected[i] = byte(i)
 	}
@@ -144,11 +157,13 @@ func grpcPingPong(done chan int) {
 			complete = true
 			break
 		default:
+			log.Println("write")
 			write(expected)
 			in := make([]byte, len(expected))
+			log.Println("read")
 			read(in)
 			count++
 		}
 	}
-	log.Println("count: " + strconv.FormatInt(int64(count), 10))
+	log.Println("grpc count: " + strconv.FormatInt(int64(count), 10))
 }
