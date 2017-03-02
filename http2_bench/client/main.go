@@ -5,7 +5,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
+	"time"
 
 	"golang.org/x/net/http2"
 )
@@ -20,7 +22,12 @@ func main() {
 	}
 
 	log.Println("about to start up call")
-	initCall()
+	done := make(chan int, 1)
+	go func() {
+		time.Sleep(time.Second * 1)
+		done <- 0
+	}()
+	http2PingPong(done)
 }
 
 type recvBuffer struct {
@@ -96,7 +103,7 @@ func (r *recvBuffer) Read(dest []byte) (int, error) {
 	return len(b), nil
 }
 
-func initCall() {
+func http2PingPong(done chan int) {
 	reqBuffer := newRecvBuffer()
 	addr := "localhost:8080"
 
@@ -128,13 +135,23 @@ func initCall() {
 	for i, _ := range req {
 		req[i] = byte(i)
 	}
-	for i := 0; i < 10000; i++ {
-		write(req)
-		read()
+	complete := false
+	count := 0
+	for !complete {
+		select {
+		case <-done:
+			complete = true
+			break
+		default:
+			write(req)
+			read()
+			count++
+		}
 	}
 	write(make([]byte, 0))
 	if !read() {
 		panic("")
 	}
+	log.Println("count: " + strconv.FormatInt(int64(count), 10))
 	defer httpResp.Body.Close()
 }
