@@ -6,7 +6,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
+	"time"
 
 	"golang.org/x/net/http2"
 )
@@ -22,15 +24,30 @@ func main() {
 
 	reqBuffer := newRecvBuffer()
 	respBuffer := newRecvBuffer()
+	doneChan := make(chan bool)
 	go func() {
+		time.Sleep(time.Second * 2)
+		doneChan <- true
+	}()
+	totalChan := make(chan int64, 1)
+	go func() {
+		count := 0
 		defer reqBuffer.put(make([]byte, 0))
-		for i := 0; i < 1000; i++ {
-			log.Println("about to send 1st")
+		defer func() { totalChan <- int64(count) }()
+		for {
+			select {
+			case <-doneChan:
+				return
+			default:
+			}
 			requestResponse(reqBuffer, respBuffer)
+			count += 1
 		}
 	}()
 	log.Println("about to start up call")
 	initCall(reqBuffer, respBuffer)
+	total := <-totalChan
+	log.Println("total: " + strconv.FormatInt(total, 10))
 }
 
 type recvBuffer struct {
@@ -85,11 +102,8 @@ func (r *recvBuffer) Write(b []byte) (int, error) {
 }
 
 func (r *recvBuffer) Read(dest []byte) (int, error) {
-	log.Println("about to wait on get")
 	b := <-r.get()
-	log.Println("just got through a get")
 	r.load()
-	log.Println("just loaded")
 
 	if len(b) == 0 {
 		log.Println("recvBuffer EOF reached")
@@ -106,7 +120,6 @@ func (r *recvBuffer) Read(dest []byte) (int, error) {
 	if n != 10 {
 		panic("bad")
 	}
-	log.Println("recvBuffer read complete")
 	return len(b), nil
 }
 
@@ -122,15 +135,11 @@ func initCall(reqBuffer *recvBuffer, respBuffer *recvBuffer) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println("about to call client.Do")
 	httpResp, err = http.DefaultClient.Do(httpReq)
-	log.Println("just finished clinet.Do")
 	defer httpResp.Body.Close()
 	for {
 		resp := make([]byte, 10)
-		log.Println("about to wait for resp")
 		_, err = io.ReadFull(httpResp.Body, resp)
-		log.Println("jsut got resp")
 		if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
 			panic("")
 		}
@@ -146,12 +155,9 @@ func requestResponse(reqBuffer *recvBuffer, respBuffer *recvBuffer) {
 	for i, _ := range req {
 		req[i] = byte(i)
 	}
-	log.Println("about to put in reqBuffer")
 	reqBuffer.put(req)
-	log.Println("just put in reqBuffer")
 	resp := make([]byte, 10)
 	_, err := io.ReadFull(respBuffer, resp)
-	log.Println("just read full a response")
 	if err != nil {
 		log.Fatalf("err happened. %v", err)
 	}
